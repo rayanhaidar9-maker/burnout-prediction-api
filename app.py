@@ -1,35 +1,37 @@
+import os
 import joblib
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-# Load the model pipeline
+# -----------------------
+# Load model
+# -----------------------
 try:
-    model = joblib.load('burnout_prediction_model.joblib')
+    model = joblib.load("burnout_prediction_model.joblib")
 except FileNotFoundError:
-    raise RuntimeError("Model file 'burnout_prediction_model.joblib' not found. Please ensure it's in the correct directory.")
+    raise RuntimeError("Model file not found. Ensure 'burnout_prediction_model.joblib' is in the project directory.")
 
+# -----------------------
+# FastAPI app
+# -----------------------
 app = FastAPI()
 
-# Configure CORS middleware
-origins = [
-    "http://localhost",
-    "http://localhost:8000",
-    "http://localhost:3000",
-    "https://your-frontend-domain.com",
-    "*"
-]
-
+# -----------------------
+# CORS (safe for Lovable)
+# -----------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],  # allow Lovable + any frontend
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Define the input data schema using Pydantic
+# -----------------------
+# Input schema
+# -----------------------
 class BurnoutPredictRequest(BaseModel):
     day_type: str
     work_hours: float
@@ -40,32 +42,40 @@ class BurnoutPredictRequest(BaseModel):
     sleep_hours: float
     task_completion_rate: float
 
+# -----------------------
 # Root endpoint
-@app.get("/", summary="Root endpoint")
-async def root():
-    return {"message": "Welcome to the Work From Home Burnout Risk Prediction API"}
+# -----------------------
+@app.get("/")
+def root():
+    return {"message": "Burnout Prediction API is running 🚀"}
 
+# -----------------------
 # Prediction endpoint
-@app.post("/predict_burnout", summary="Predict burnout risk for an employee")
-async def predict_burnout(request_data: BurnoutPredictRequest):
+# -----------------------
+@app.post("/predict")
+def predict_burnout(request_data: BurnoutPredictRequest):
     try:
-        # Convert incoming request data to a pandas DataFrame
         input_df = pd.DataFrame([request_data.model_dump()])
 
-        # Make prediction
         prediction = model.predict(input_df)
+        prediction_proba = model.predict_proba(input_df)
 
-        # Get prediction probabilities
-        prediction_proba = model.predict_proba(input_df).tolist()
-
-        # Get class labels from the trained model's classes_ attribute
-        class_labels = model.classes_.tolist() 
+        class_labels = model.classes_.tolist()
         probabilities = dict(zip(class_labels, prediction_proba[0]))
 
         return {
-            "burnout_risk_prediction": prediction[0],
+            "prediction": prediction[0],
             "probabilities": probabilities
         }
+
     except Exception as e:
-        print(f"Error during prediction: {e}")
-        raise HTTPException(status_code=500, detail=f"Internal Server Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# -----------------------
+# Render PORT fix (IMPORTANT)
+# -----------------------
+if __name__ == "__main__":
+    import uvicorn
+
+    port = int(os.environ.get("PORT", 10000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
